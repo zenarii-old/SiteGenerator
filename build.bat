@@ -2,5 +2,6 @@
 
 IF NOT EXIST build mkdir build
 pushd build
-cl /Zi /WX ../source/generator.c /link user32.lib /out:sitegen.exe
+clang -Werror -g -gcodeview ../source/generator.c -o sitegen.exe -target x86_64-w64-mingw64
 popd
+echo Compilation completed at %time%.

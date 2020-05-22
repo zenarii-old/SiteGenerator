@@ -3,6 +3,10 @@
 #include <string.h>
 #include <stddef.h>
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
+#define foreach(x) for(; (x); (x) = (x)->Next)
+
+
+typedef uintptr_t pointer;
 
 static int DidError = 0;
 
@@ -71,14 +75,138 @@ InvalidCode(const int Line, const char * File, const char * Error, int Result, i
     printf("Assert Failed: %s\nLine: %i File:%s\n", Error, Line, File);
 
     if(Crash) {
-        *((int *)0) = 0;
+        __builtin_trap();
+        //*((int *)0) = 0;
     }
+}
+
+/*
+    Memory Arena
+*/
+static int
+IsPowerOfTwo(int x) {
+    return (x & (x-1)) == 0;
+}
+
+typedef struct memory_arena memory_arena;
+struct memory_arena {
+    size_t BufferLength;
+    size_t PreviousOffset;
+    size_t CurrentOffset;
+    unsigned char * Buffer;
+};
+
+static pointer
+AlignForward(pointer Pointer, size_t Alignment) {
+    pointer p, a, Modulo;
+    Assert(IsPowerOfTwo(Alignment));
+
+    p = Pointer;
+    a = (pointer)Alignment;
+
+    //Note(Zen): Identical to p % a. Faster since a = 2^k.
+    Modulo = p & (a-1);
+    if(Modulo != 0) {
+        //Note(Zen): If p is unaligned move address forwards
+        p += a - Modulo;
+    }
+    return p;
+}
+
+static void
+_ArenaGrow(memory_arena * Arena, size_t NewLength) {
+    size_t NewSize = MAX(2 * Arena->BufferLength, NewLength);
+    Assert(NewLength <= NewSize);
+
+    Arena->Buffer = realloc(Arena->Buffer, NewSize);
+    Arena->BufferLength = NewSize;
+}
+
+static void *
+_ArenaAllocAligned(memory_arena * Arena, size_t Size, size_t Alignment) {
+    pointer CurrentPointer = (pointer)Arena->Buffer + (pointer)Arena->CurrentOffset;
+    pointer Offset = AlignForward(CurrentPointer, Alignment);
+    Offset -= (pointer)Arena->Buffer;
+
+    if(Offset + Size <= Arena->BufferLength) {
+        void * Pointer = &Arena->Buffer[Offset];
+        Arena->PreviousOffset = Offset;
+        Arena->CurrentOffset = Offset+Size;
+
+        memset(Pointer, 0, Size);
+        return Pointer;
+    }
+    else {
+        _ArenaGrow(Arena, Arena->BufferLength + Size);
+        return _ArenaAllocAligned(Arena, Size, Alignment);
+    }
+}
+
+static void *
+_ArenaResizeAligned(memory_arena * Arena, void * OldMemory, size_t OldSize, size_t NewSize, size_t Alignment) {
+    unsigned char * OldMemoryC = (unsigned char *)OldMemory;
+
+    Assert(IsPowerOfTwo(Alignment));
+
+    if(OldMemoryC == 0 || OldMemoryC == NULL) {
+        return _ArenaAllocAligned(Arena, NewSize, Alignment);
+    }
+    else if((Arena->Buffer <= OldMemoryC) && (OldMemoryC < Arena->Buffer + Arena->BufferLength)) {
+        if(Arena->Buffer + Arena->PreviousOffset == OldMemoryC) {
+            Arena->CurrentOffset = Arena->PreviousOffset + NewSize;
+            if(NewSize > OldSize) {
+                memset(&Arena->Buffer[Arena->CurrentOffset], 0, NewSize-OldSize);
+            }
+            return OldMemory;
+        }
+        else {
+            void * NewMemory = _ArenaAllocAligned(Arena, NewSize, Alignment);
+            size_t CopySize = (OldSize < NewSize) ? OldSize : NewSize;
+            //Copy across the old memory
+            memmove(NewMemory, OldMemory, CopySize);
+            return NewMemory;
+        }
+    }
+    else {
+        Assert(!"Resized memory is out of bounds in arena.\n");
+        return 0;
+    }
+
+}
+
+#ifndef DEFAULT_ALIGNMENT
+#define DEFAULT_ALIGNMENT (2 * sizeof(void *))
+#endif
+static void *
+ArenaAlloc(memory_arena * Arena, size_t Size) {
+    return _ArenaAllocAligned(Arena, Size, DEFAULT_ALIGNMENT);
+}
+
+
+static void *
+ArenaResize(memory_arena * Arena, void * OldMemory, size_t OldSize, size_t NewSize) {
+    return _ArenaResizeAligned(Arena, OldMemory, OldSize, NewSize, DEFAULT_ALIGNMENT);
+}
+
+
+static void
+ArenaInit(memory_arena * Arena, void * BackBuffer, size_t BackBufferLength) {
+    Arena->Buffer = (unsigned char *) BackBuffer;
+    Arena->BufferLength = BackBufferLength;
+    Arena->CurrentOffset = 0;
+    Arena->PreviousOffset = 0;
+}
+
+static void
+ArenaFreeAll(memory_arena * Arena) {
+    Arena->CurrentOffset = 0;
+    Arena->PreviousOffset = 0;
 }
 
 /*
     Dynamic Array/Vector
 */
-//Note(Zen): dynamic array/vector implementation
+
 typedef struct vector_header vector_header;
 struct vector_header {
     size_t Length;
@@ -157,13 +285,13 @@ static char *
 PrintableTokenName(token Token) {
     static char TokenName[32];
     if(Token.Type <= TOKEN_LASTCHAR) {
-        sprintf(TokenName, "character %c .", Token.Type);
+        sprintf(TokenName, "character %c.", Token.Type);
     }
     else if(Token.Type == TOKEN_IDENTIFIER) {
         sprintf(TokenName, "%.*s", (int)(Token.End - Token.Start), Token.Start);
     }
     else if(Token.Type == TOKEN_TEXT) {
-        sprintf(TokenName, "text", (int)(Token.End - Token.Start), Token.Start);
+        sprintf(TokenName, "text");//, (int)(Token.End - Token.Start), Token.Start);
     }
     else if(Token.Type == TOKEN_NEW_LINE) {
         sprintf(TokenName, "newline");
@@ -239,82 +367,90 @@ enum page_node_type {
     PAGE_NODE_LINK,
     PAGE_NODE_TEXT,
     PAGE_NODE_NEW_PARAGRAPH,
-    PAGE_NODE_IMAGE
+    PAGE_NODE_IMAGE,
+    PAGE_NODE_COLUMN
 };
 
 typedef struct page_node page_node;
 struct page_node {
     page_node_type Type;
-    page_node * Child;
     page_node * Next;
+
+    const char * TextStart;
+    const char * TextEnd;
     union {
         struct {
-            const char * TitleTextStart;
-            const char * TitleTextEnd;
-        };
-
-        struct {
-            const char * LinkTextStart;
-            const char * LinkTextEnd;
             const char * LinkURLStart;
             const char * LinkURLEnd;
         };
 
         struct {
-            const char * TextStart;
-            const char * TextEnd;
+            page_node * Column1;
+            page_node * Column2;
         };
     };
 };
 
 static void
-PrintPageNode(page_node PageNode) {
-    switch (PageNode.Type) {
+PrintPageNode(page_node * PageNode) {
+    int TextLength = PageNode->TextEnd - PageNode->TextStart;
+    int LinkLength = PageNode->LinkURLEnd - PageNode->LinkURLStart;
+    switch (PageNode->Type) {
         case PAGE_NODE_INVALID: {
             printf("PAGE NODE: INVALID\n");
         } break;
         case PAGE_NODE_TITLE: {
-            printf("PAGE NODE: TITLE\n\tText: %.*s\n", (int)(PageNode.TitleTextEnd - PageNode.TitleTextStart), PageNode.TitleTextStart);
+            printf("PAGE NODE: TITLE\n\tText: %.*s\n", TextLength, PageNode->TextStart);
         } break;
         case PAGE_NODE_SUBTITLE: {
-            printf("PAGE NODE: SUBTITLE\n\tText: %.*s\n", (int)(PageNode.TitleTextEnd - PageNode.TitleTextStart), PageNode.TitleTextStart);
+            printf("PAGE NODE: SUBTITLE\n\tText: %.*s\n", TextLength, PageNode->TextStart);
         } break;
         case PAGE_NODE_LINK: {
-            printf("PAGE NODE: LINK\n\tText: %.*s\n\tURL: %.*s\n", (int)(PageNode.LinkTextEnd-PageNode.LinkTextStart), PageNode.LinkTextStart, (int)(PageNode.LinkURLEnd-PageNode.LinkURLStart), PageNode.LinkURLStart);
+            printf("PAGE NODE: LINK\n\tText: %.*s\n\tURL: %.*s\n", TextLength, PageNode->TextStart, LinkLength, PageNode->LinkURLStart);
         } break;
         case PAGE_NODE_TEXT: {
-            printf("PAGE NODE: TEXT\n\tText: %.*s\n",(int)(PageNode.LinkTextEnd-PageNode.LinkTextStart), PageNode.LinkTextStart, (int)(PageNode.LinkURLEnd-PageNode.LinkURLStart), PageNode.LinkURLStart);
+            printf("PAGE NODE: TEXT\n\tText: %.*s\n", TextLength, PageNode->TextStart);
         } break;
         case PAGE_NODE_NEW_PARAGRAPH: {
             printf("PAGE NODE: NEW PARAGRAPH\n");
         } break;
+        case PAGE_NODE_IMAGE: {
+            printf("PAGE NODE: IMAGE\n\tAlternate Text: %.*s\n\tSource: %.*s\n", TextLength, PageNode->TextStart, LinkLength, PageNode->LinkURLStart);
+        } break;
         default: {
-            printf("PAGE NODE: @Zen add page node: (%d)\n", PageNode.Type);
+            printf("PAGE NODE: @Zen add page node: (%d)\n", PageNode->Type);
         } break;
     }
 }
 
-static page_node *
-BuildPage(token * TokenBuffer) {
-    page_node * PageNodeList = 0;
+static void
+BuildNodeFromTokens() {
 
+}
+
+
+static void
+BuildPage(memory_arena * Arena, token * TokenBuffer) {
+
+    page_node * PreviousNode = 0;
     for(int i = 0; i < VectorLength(TokenBuffer); ++i) {
         token Token = TokenBuffer[i];
-        page_node Node = {0};
+        page_node * Node = ArenaAlloc(Arena, sizeof(page_node));
+
         switch(Token.Type) {
             case TOKEN_NEW_LINE: {
-                Node.Type = PAGE_NODE_NEW_PARAGRAPH;
+                Node->Type = PAGE_NODE_NEW_PARAGRAPH;
             } break;
             case TOKEN_IDENTIFIER: {
                 int TokenLength = (Token.End - Token.Start);
                 if(StringCompareCaseSensitiveR(Token.Start, "@Title", TokenLength)) {
-                    Node.Type = PAGE_NODE_TITLE;
+                    Node->Type = PAGE_NODE_TITLE;
                     ++i;
                     if(RequireToken('{', TokenBuffer[i])) {
                         ++i;
                         if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node.TitleTextStart = TokenBuffer[i].Start;
-                            Node.TitleTextEnd = TokenBuffer[i].End;
+                            Node->TextStart = TokenBuffer[i].Start;
+                            Node->TextEnd = TokenBuffer[i].End;
                         }
                         else {
                             printf("Error: Argument 1 of @Title should be text, not %s", PrintableTokenName(TokenBuffer[i]));
@@ -333,13 +469,13 @@ BuildPage(token * TokenBuffer) {
                     }
                 }
                 else if(StringCompareCaseSensitiveR(Token.Start, "@Link", TokenLength)) {
-                    Node.Type = PAGE_NODE_LINK;
+                    Node->Type = PAGE_NODE_LINK;
                     ++i;
                     if(RequireToken('{', TokenBuffer[i])) {
                         ++i;
                         if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node.LinkTextStart = TokenBuffer[i].Start;
-                            Node.LinkTextEnd = TokenBuffer[i].End;
+                            Node->TextStart = TokenBuffer[i].Start;
+                            Node->TextEnd = TokenBuffer[i].End;
                         }
                         else {
                             printf("Error: Argument 1 of @Link should be a string, not %s\n", PrintableTokenName(TokenBuffer[i]));
@@ -354,8 +490,8 @@ BuildPage(token * TokenBuffer) {
 
                         ++i;
                         if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node.LinkURLStart = TokenBuffer[i].Start;
-                            Node.LinkURLEnd = TokenBuffer[i].End;
+                            Node->LinkURLStart = TokenBuffer[i].Start;
+                            Node->LinkURLEnd = TokenBuffer[i].End;
                         }
                         else {
                             printf("Error: Argument 2 of @Link should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
@@ -372,13 +508,13 @@ BuildPage(token * TokenBuffer) {
                     }
                 }
                 else if(StringCompareCaseSensitiveR(Token.Start, "@SubTitle", TokenLength)) {
-                    Node.Type = PAGE_NODE_SUBTITLE;
+                    Node->Type = PAGE_NODE_SUBTITLE;
                     ++i;
                     if(RequireToken('{', TokenBuffer[i])) {
                         ++i;
                         if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node.TitleTextStart = TokenBuffer[i].Start;
-                            Node.TitleTextEnd = TokenBuffer[i].End;
+                            Node->TextStart = TokenBuffer[i].Start;
+                            Node->TextEnd = TokenBuffer[i].End;
                         }
                         else {
                             printf("Error: Argument 1 of @SubTitle should be text, not %s", PrintableTokenName(TokenBuffer[i]));
@@ -397,14 +533,51 @@ BuildPage(token * TokenBuffer) {
                     }
                 }
                 else if(StringCompareCaseSensitiveR(Token.Start, "@Image", TokenLength)) {
-                    Node.Type = PAGE_NODE_IMAGE;
+                    Node->Type = PAGE_NODE_IMAGE;
                     ++i;
                     if(RequireToken('{', TokenBuffer[i])) {
+                        ++i;
+                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
+                            Node->TextStart = TokenBuffer[i].Start;
+                            Node->TextEnd = TokenBuffer[i].End;
+                        }
+                        else {
+                            printf("Error: Argument 1 of @Image should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(!RequireToken(',', TokenBuffer[i])) {
+                            printf("Error: @Image requires two arguments\n");
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
+                            Node->LinkURLStart = TokenBuffer[i].Start;
+                            Node->LinkURLEnd = TokenBuffer[i].End;
+                        }
+                        else {
+                            printf("Error: Argument 2 of @Image should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(!MatchToken('}', TokenBuffer[i])) {
+                            printf("Error: @Image must be followed by }\n");
+                            DidError = 1;
+                        }
 
                     }
                     else {
-                        printf("Error: @Image needs a url and alt text.\n");
+                        printf("Error: @Image Requires '{'\n");
+                        DidError = 1;
                     }
+                }
+                else if(StringCompareCaseSensitiveR(Token.Start, "@Column", TokenLength)) {
+                    Node->Type = PAGE_NODE_COLUMN;
+                    //
+                    
                 }
                 else {
                     printf("Error: Unknown Identifier (%.*s)\n", (int)(Token.End-Token.Start), Token.Start);
@@ -412,19 +585,24 @@ BuildPage(token * TokenBuffer) {
                 }
             } break;
             case TOKEN_TEXT: {
-                Node.Type = PAGE_NODE_TEXT;
-                Node.TextStart = Token.Start;
-                Node.TextEnd = Token.End;
+                Node->Type = PAGE_NODE_TEXT;
+                Node->TextStart = Token.Start;
+                Node->TextEnd = Token.End;
             } break;
             default: {
                 printf("Error: Couldn't build page node from token %d: %s\n", i, PrintableTokenName(Token));
             } break;
         }
-
-        PrintPageNode(Node);
-        VectorPushBack(PageNodeList, Node);
+        if(PreviousNode) {
+            PreviousNode->Next = Node;
+        }
+        PreviousNode = Node;
     }
-    return PageNodeList;
+    //TODO(Zen): Only if in debug mode
+    page_node * Node = (page_node *)Arena->Buffer;
+    foreach(Node) {
+        PrintPageNode(Node);
+    }
 }
 
 typedef struct site_info site_info;
@@ -434,76 +612,81 @@ struct site_info {
 };
 
 static void
-OutputPageNodeListAsHTML(site_info SiteInfo, page_node * PageNodeList, char * Header, char * Footer) {
+OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagraph) {
+    switch (CurrentNode->Type) {
+        case PAGE_NODE_TITLE: {
+            int TextLength = (int)(CurrentNode->TextEnd-CurrentNode->TextStart);
+
+            fprintf(OutputFile, "<h1>%.*s</h1>\n", TextLength, CurrentNode->TextStart);
+        } break;
+        case PAGE_NODE_NEW_PARAGRAPH: {
+            if(*InParagraph) {
+                fprintf(OutputFile, "\n</p>\n");
+                *InParagraph = 0;
+            }
+        } break;
+        case PAGE_NODE_LINK: {
+            int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
+            int LinkLength = CurrentNode->LinkURLEnd - CurrentNode->LinkURLStart;
+            fprintf(OutputFile, "<a href='%.*s' class='Link'>%.*s</a> ", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
+        } break;
+        case PAGE_NODE_TEXT: {
+            if(!InParagraph) fprintf(OutputFile, "<p>\n");
+
+            int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
+            fprintf(OutputFile, "%.*s", TextLength, CurrentNode->TextStart);
+            *InParagraph = 1;
+        } break;
+        case PAGE_NODE_SUBTITLE: {
+            int TextLength = (int)(CurrentNode->TextEnd-CurrentNode->TextStart);
+            fprintf(OutputFile, "<h2>%.*s</h2>\n", TextLength, CurrentNode->TextStart);
+        } break;
+        case PAGE_NODE_IMAGE: {
+            int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
+            int LinkLength = CurrentNode->LinkURLEnd - CurrentNode->LinkURLStart;
+            fprintf(OutputFile, "<img src='%.*s' alt='%.*s' width='100%%'>\n", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
+        } break;
+        default: {
+            printf("@Zen add content for page node (%d)\n", CurrentNode->Type);
+        }
+    }
+}
+
+static void
+OutputPageNodeListAsHTML(site_info SiteInfo, memory_arena * NodesArena, char * Header, char * Footer) {
     //Note(Zen): Output to the file
     //TODO(Zen): make the out the file name that went in
     FILE * OutputFile = fopen("out.html", "w");
 
     fprintf(OutputFile, "<!DOCTYPE html>\n");
     fprintf(OutputFile, "<!-- Auto generated by Zenarii's Static Website Generator: https://github.com/Zenarii-->\n");
-    fprintf(OutputFile, "<html lang=\"en\">\n");
+    fprintf(OutputFile, "<html lang='en'>\n");
     fprintf(OutputFile, "<head>\n");
     {
         if(SiteInfo.PageTitle) fprintf(OutputFile, "<title>%s</title>\n", SiteInfo.PageTitle);
 
         fprintf(OutputFile, "<link rel='stylesheet' type='text/css' href='style.css'>\n");
-        fprintf(OutputFile, "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n");
+        fprintf(OutputFile, "<meta name='viewport' content='width=device-width, initial-scale=1.0'>\n");
         fprintf(OutputFile, "<meta charset='UTF-8'>\n");
         //TODO(Zen): Open graph stuff e.g. og:title https://ogp.me/
-        if(SiteInfo.AuthorName) fprintf(OutputFile, "<meta name=\"author\" content=\"%s\">\n", SiteInfo.AuthorName);
-
+        if(SiteInfo.AuthorName) fprintf(OutputFile, "<meta name='author' content='%s'>\n", SiteInfo.AuthorName);
     }
     fprintf(OutputFile, "</head>\n");
 
     fprintf(OutputFile, "<body>\n");
     {
-        if(Header) fprintf(OutputFile, Header);
+        if(Header) fprintf(OutputFile, "%s", Header);
         int InParagraph = 0;
+        page_node * Node = (page_node *)NodesArena->Buffer;
 
-        for(int i = 0; i < VectorLength(PageNodeList); ++i) {
-            page_node CurrentNode = PageNodeList[i];
-            page_node PreviousNode;
-            if(i != 0) {
-                 PreviousNode = PageNodeList[i-1];
-            }
-            switch (CurrentNode.Type) {
-                case PAGE_NODE_TITLE: {
-                    int TextLength = (int)(CurrentNode.TitleTextEnd-CurrentNode.TitleTextStart);
-
-                    fprintf(OutputFile, "<h1>%.*s</h1>\n", TextLength, CurrentNode.TitleTextStart);
-                } break;
-                case PAGE_NODE_NEW_PARAGRAPH: {
-                    if(InParagraph) {
-                        fprintf(OutputFile, "\n</div>\n");
-                        InParagraph = 0;
-                    }
-                } break;
-                case PAGE_NODE_LINK: {
-                    int TextLength = CurrentNode.LinkTextEnd - CurrentNode.LinkTextStart;
-                    int LinkLength = CurrentNode.LinkURLEnd - CurrentNode.LinkURLStart;
-                    fprintf(OutputFile, "<a href='%.*s' class='Link'>%.*s</a> ", LinkLength, CurrentNode.LinkURLStart, TextLength, CurrentNode.LinkTextStart);
-                } break;
-                case PAGE_NODE_TEXT: {
-                    if(!InParagraph) fprintf(OutputFile, "<div class='BodyText'>\n");
-
-                    int TextLength = CurrentNode.TextEnd - CurrentNode.TextStart;
-                    fprintf(OutputFile, "%.*s", TextLength, CurrentNode.TextStart);
-                    InParagraph = 1;
-                } break;
-                case PAGE_NODE_SUBTITLE: {
-                    int TextLength = (int)(CurrentNode.TitleTextEnd-CurrentNode.TitleTextStart);
-                    fprintf(OutputFile, "<h2>%.*s</h2>\n", TextLength, CurrentNode.TitleTextStart);
-                } break;
-                default: {
-                    printf("@Zen add content for page node (%d)\n", CurrentNode.Type);
-                }
-            }
+        for(; Node; Node = Node->Next) {
+            OutputPageNodeAsHTML(OutputFile, Node, &InParagraph);
         }
         if(InParagraph) {
-            fprintf(OutputFile, "\n</div>\n");
+            fprintf(OutputFile, "\n</p>\n");
         }
 
-        if(Footer) fprintf(OutputFile, Footer);
+        if(Footer) fprintf(OutputFile, "%s", Footer);
     }
     fprintf(OutputFile, "</body>\n");
 
@@ -579,9 +762,15 @@ main(int argc, char ** args) {
     }
 
     //Note(Zen): Build a token buffer for each file
+
+    memory_arena PageNodesArena = {0};
+    void * ArenaMemory = malloc(32 * sizeof(page_node));
+    ArenaInit(&PageNodesArena, ArenaMemory, 32 * sizeof(page_node));
+
     for(int i = 0; i < FileCount; ++i) {
         char * File = LoadEntireFileNT(FilesToParse[i]);
         char * Stream = File;
+        //Note(Zen): Parse the file.
         printf("Parsing %s.\n", FilesToParse[i]);
         token * TokenBuffer = NULL;
         while(*Stream) {
@@ -591,22 +780,24 @@ main(int argc, char ** args) {
             printf("%d", i);
             PrintToken(TokenBuffer[i]);
         }
+        //Note(Zen): Build page tree.
         printf("\nBuilding Page Tree:\n");
-        page_node * PageNodeList = BuildPage(TokenBuffer);
+
+        BuildPage(&PageNodesArena, TokenBuffer);
 
         if(!DidError) {
             if(Output & OUTPUT_HTML) {
-                OutputPageNodeListAsHTML(SiteInfo, PageNodeList, Header, Footer);
+                OutputPageNodeListAsHTML(SiteInfo, &PageNodesArena, Header, Footer);
             }
         }
         else {
             printf("Failed to parse file: %s, due to errors.\n", FilesToParse[i]);
-
         }
+        ArenaFreeAll(&PageNodesArena);
         //Note(Zen): Reset Globals
         Line = 0;
         DidError = 0;
     }
-
+    printf("Reached end of program without crashing.\n");
     return 0;
 }
