@@ -1,0 +1,171 @@
+:root {
+    /*
+    Nord theme colours
+    from https://github.com/arcticicestudio/nord
+    */
+    --nord0: #2e3440;
+    --nord1: #3b4252;
+    --nord2: #434c5e;
+    --nord3: #4c566a;
+    --nord4: #d8dee9;
+    --nord5: #e5e9f0;
+    --nord6: #eceff4;
+    --nord7: #8fbcbb;
+    --nord8: #88c0d0;
+    --nord9: #81a1c1;
+    --nord10: #5e81ac;
+    --nord11: #bf616a;
+    --nord12: #d08770;
+    --nord13: #ebcb8b;
+    --nord14: #a3be8c;
+    --nord15: #b48ead;
+
+    /*
+        Colours for different elements
+    */
+    --ColourText: var(--nord6);
+    --ColourBackground: var(--nord0);
+    --ColourLink: var(--nord12);
+    --ColourCodeBackground: var(--nord1);
+    --ColourColumn: var(--nord2);
+    --ColourTitle: var(--nord14);
+}
+
+@font-face
+{
+    font-family: 'Title';
+    src: url('Oxygen-Bold.ttf') format('truetype');
+}
+
+@font-face
+{
+    font-family: 'Text';
+    src: url('OpenSans-Regular.ttf') format('truetype');
+}
+
+body {
+    background-color: var(--ColourBackground);
+    width: 60%;
+    margin: auto;
+    text-decoration: none;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+}
+
+/* Used to describe @Title */
+h1 {
+    color: var(--ColourTitle);
+    font-family: 'Title';
+    padding-bottom: 10px;
+}
+
+/* Used to describe @SubTitle */
+h2 {
+    color: var(--ColourTitle);
+    font-family: 'Title';
+}
+
+/* Used to describe standard text */
+p {
+    color: var(--ColourText);
+    font-family: 'Text';
+}
+
+/* Used to describe @Link */
+p a {
+	color: var(--ColourLink);
+	text-decoration: none;
+}
+
+p a:hover {
+	border-bottom: 1px solid;
+	border-bottom-width: 1px;
+}
+
+/*CSS for the @Column tag and variants*/
+
+.Columns {
+    display:flex;
+    padding-bottom: 20px;
+
+}
+
+.Column {
+    border-radius: 25px;
+    float: left;
+    width: 50%;
+    overflow: hidden;
+    background-color: var(--ColourColumn);
+    text-align:center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.Column img {
+    object-fit: cover;
+}
+
+.Column p {
+    width: 90%;
+}
+
+/* Selected text colour */
+::-moz-selection { /* Code for Firefox */
+    color: red;
+    background: var(--colour-selection);
+}
+
+::selection {
+    color: var(--colour-title);
+    background: var(--colour-selection);
+}
+
+
+/* CSS for the html included via --header */
+.HeaderWrapper {
+    text-align:center;
+}
+.HeaderTitle a {
+    display: inline-block;
+    width: 300px;
+    font-size: 3rem;
+    text-decoration: none;
+    color: var(--ColourTitle);
+    /* font-family: 'Roboto'; */
+}
+
+.Header {
+    list-style-type: none;
+    margin: auto;
+    overflow: hidden;
+    text-align: center;
+    display: inline-block;
+    font-family: 'Title';
+}
+
+.HeaderLinks {
+    display: inline-block;
+}
+
+.HeaderLink {
+    display: inline-block;
+    color: var(--ColourTitle);
+    padding: 8px;
+    padding-left: 24px;
+    padding-right: 24px;
+    text-decoration: none;
+    font-family: 'Title';
+    color:
+}
+
+.HeaderLink:hover {
+    background-color: var(--colour-clear);
+    border-bottom-style: solid;
+    border-width: 1px;
+    padding-bottom: 7px;
+    border-color: var(--colour-dark);
+}

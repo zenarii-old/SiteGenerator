@@ -4,7 +4,7 @@
 #include <stddef.h>
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define foreach(x) for(; (x); (x) = (x)->Next)
-
+#define GENERATOR_INTERNAL 1
 
 typedef uintptr_t pointer;
 
@@ -46,7 +46,7 @@ CharIsDigit(char c) {
 
 static int
 CharIsSymbol(char c) {
-    return c == '.' || c == ':' || c == '/' || c == '\\';
+    return c == '.' || c == ':' || c == '/' || c == '\\' || c == ',' || c == '_' || c == '-' || c == '<' || c == '>' || c =='\'' || c == '!' || c == '?';
 }
 
 static int
@@ -310,7 +310,7 @@ AddTokenToBuffer(char * Stream, token ** TokenBuffer) {
         }
         Token.Type = TOKEN_IDENTIFIER;
     }
-    else if(CharIsAlpha(*Stream)) {
+    else if(CharIsAlpha(*Stream) || CharIsDigit(*Stream) || CharIsSymbol(*Stream)) {
         while(CharIsAlpha(*Stream) || CharIsDigit(*Stream) || CharIsSymbol(*Stream) || *Stream == ' ') {
             ++Stream;
         }
@@ -338,7 +338,10 @@ AddTokenToBuffer(char * Stream, token ** TokenBuffer) {
     }
     Token.End = Stream;
     Token.Line = Line;
-    //PrintToken(Token);
+
+    #if GENERATOR_INTERNAL
+    PrintToken(Token);
+    #endif
     VectorPushBack((*TokenBuffer), Token);
     return Stream;
 }
@@ -371,6 +374,12 @@ enum page_node_type {
     PAGE_NODE_COLUMN
 };
 
+typedef enum column_type column_type;
+enum column_type {
+    COLUMN_TYPE_IMAGE_TEXT,
+    COLUMN_TYPE_TEXT_IMAGE,
+};
+
 typedef struct page_node page_node;
 struct page_node {
     page_node_type Type;
@@ -385,9 +394,10 @@ struct page_node {
         };
 
         struct {
-            page_node * Column1;
-            page_node * Column2;
-        };
+            column_type SubType;
+            const char * SecondTextStart;
+            const char * SecondTextEnd;
+        } Column;
     };
 };
 
@@ -417,17 +427,15 @@ PrintPageNode(page_node * PageNode) {
         case PAGE_NODE_IMAGE: {
             printf("PAGE NODE: IMAGE\n\tAlternate Text: %.*s\n\tSource: %.*s\n", TextLength, PageNode->TextStart, LinkLength, PageNode->LinkURLStart);
         } break;
+        case PAGE_NODE_COLUMN: {
+            int SecondTextLength = PageNode->Column.SecondTextEnd - PageNode->Column.SecondTextStart;
+            printf("PAGE NODE: COLUMN\n\tColumn Type: %d\n\tText 1: %.*s\n\tText 2: %.*s\n", PageNode->Column.SubType, TextLength, PageNode->TextStart, SecondTextLength, PageNode->Column.SecondTextStart);
+        } break;
         default: {
             printf("PAGE NODE: @Zen add page node: (%d)\n", PageNode->Type);
         } break;
     }
 }
-
-static void
-BuildNodeFromTokens() {
-
-}
-
 
 static void
 BuildPage(memory_arena * Arena, token * TokenBuffer) {
@@ -483,7 +491,7 @@ BuildPage(memory_arena * Arena, token * TokenBuffer) {
                         }
 
                         ++i;
-                        if(!RequireToken(',', TokenBuffer[i])) {
+                        if(!RequireToken('|', TokenBuffer[i])) {
                             printf("Error: @Link requires two arguments\n");
                             DidError = 1;
                         }
@@ -547,7 +555,7 @@ BuildPage(memory_arena * Arena, token * TokenBuffer) {
                         }
 
                         ++i;
-                        if(!RequireToken(',', TokenBuffer[i])) {
+                        if(!RequireToken('|', TokenBuffer[i])) {
                             printf("Error: @Image requires two arguments\n");
                             DidError = 1;
                         }
@@ -574,10 +582,55 @@ BuildPage(memory_arena * Arena, token * TokenBuffer) {
                         DidError = 1;
                     }
                 }
-                else if(StringCompareCaseSensitiveR(Token.Start, "@Column", TokenLength)) {
+                else if(StringCompareCaseSensitiveR(Token.Start, "@Column", strlen("@Column"))) {
                     Node->Type = PAGE_NODE_COLUMN;
-                    //
-                    
+
+                    if(StringCompareCaseSensitiveR(Token.Start, "@ColumnIT", TokenLength)) {
+                        Node->Column.SubType = COLUMN_TYPE_IMAGE_TEXT;
+                    }
+                    else if(StringCompareCaseSensitiveR(Token.Start, "@ColumnTI", TokenLength)) {
+                        Node->Column.SubType = COLUMN_TYPE_TEXT_IMAGE;
+                    }
+
+                    ++i;
+                    if(RequireToken('{', TokenBuffer[i])) {
+                        ++i;
+                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
+                            Node->TextStart = TokenBuffer[i].Start;
+                            Node->TextEnd = TokenBuffer[i].End;
+                        }
+                        else {
+                            printf("Error: Argument 1 of @Column should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(!RequireToken('|', TokenBuffer[i])) {
+                            printf("Error: @Column requires two arguments\n");
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
+                            Node->Column.SecondTextStart = TokenBuffer[i].Start;
+                            Node->Column.SecondTextEnd = TokenBuffer[i].End;
+                        }
+                        else {
+                            printf("Error: Argument 2 of @Column should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
+                            DidError = 1;
+                        }
+
+                        ++i;
+                        if(!MatchToken('}', TokenBuffer[i])) {
+                            printf("Error: @Column must be followed by }\n");
+                            DidError = 1;
+                        }
+
+                    }
+                    else {
+                        printf("Error: @Column Requires '{'\n");
+                        DidError = 1;
+                    }
                 }
                 else {
                     printf("Error: Unknown Identifier (%.*s)\n", (int)(Token.End-Token.Start), Token.Start);
@@ -598,17 +651,19 @@ BuildPage(memory_arena * Arena, token * TokenBuffer) {
         }
         PreviousNode = Node;
     }
-    //TODO(Zen): Only if in debug mode
+    #if GENERATOR_INTERNAL
     page_node * Node = (page_node *)Arena->Buffer;
     foreach(Node) {
         PrintPageNode(Node);
     }
+    #endif
 }
 
 typedef struct site_info site_info;
 struct site_info {
     char * AuthorName;
     char * PageTitle;
+    char * FileName;
 };
 
 static void
@@ -622,8 +677,8 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
         case PAGE_NODE_NEW_PARAGRAPH: {
             if(*InParagraph) {
                 fprintf(OutputFile, "\n</p>\n");
-                *InParagraph = 0;
             }
+            *InParagraph = 0;
         } break;
         case PAGE_NODE_LINK: {
             int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
@@ -631,9 +686,12 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
             fprintf(OutputFile, "<a href='%.*s' class='Link'>%.*s</a> ", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
         } break;
         case PAGE_NODE_TEXT: {
-            if(!InParagraph) fprintf(OutputFile, "<p>\n");
-
             int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
+
+            if(!*InParagraph) {
+                fprintf(OutputFile, "<p>\n");
+            };
+
             fprintf(OutputFile, "%.*s", TextLength, CurrentNode->TextStart);
             *InParagraph = 1;
         } break;
@@ -646,6 +704,32 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
             int LinkLength = CurrentNode->LinkURLEnd - CurrentNode->LinkURLStart;
             fprintf(OutputFile, "<img src='%.*s' alt='%.*s' width='100%%'>\n", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
         } break;
+        case PAGE_NODE_COLUMN: {
+            if(*InParagraph) {
+                fprintf(OutputFile, "\n</p>\n");
+                *InParagraph = 0;
+            }
+
+            int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
+            int SecondTextLength = CurrentNode->Column.SecondTextEnd - CurrentNode->Column.SecondTextStart;
+
+            fprintf(OutputFile, "<div class='Columns'>\n");
+
+            switch (CurrentNode->Column.SubType) {
+                case COLUMN_TYPE_IMAGE_TEXT: {
+                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n",
+                                        TextLength, CurrentNode->TextStart);
+                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", SecondTextLength, CurrentNode->Column.SecondTextStart);
+                } break;
+                case COLUMN_TYPE_TEXT_IMAGE: {
+                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", TextLength, CurrentNode->TextStart);
+                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n", SecondTextLength, CurrentNode->Column.SecondTextStart);
+                }
+            }
+
+            fprintf(OutputFile, "</div>\n");
+
+        } break;
         default: {
             printf("@Zen add content for page node (%d)\n", CurrentNode->Type);
         }
@@ -654,9 +738,10 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
 
 static void
 OutputPageNodeListAsHTML(site_info SiteInfo, memory_arena * NodesArena, char * Header, char * Footer) {
-    //Note(Zen): Output to the file
-    //TODO(Zen): make the out the file name that went in
-    FILE * OutputFile = fopen("out.html", "w");
+    char FileName[256] = {0};
+    strcpy(FileName, SiteInfo.FileName);
+    strcat(FileName, ".html");
+    FILE * OutputFile = fopen(FileName, "w");
 
     fprintf(OutputFile, "<!DOCTYPE html>\n");
     fprintf(OutputFile, "<!-- Auto generated by Zenarii's Static Website Generator: https://github.com/Zenarii-->\n");
@@ -692,8 +777,6 @@ OutputPageNodeListAsHTML(site_info SiteInfo, memory_arena * NodesArena, char * H
 
     fprintf(OutputFile, "</html>\n");
     fclose(OutputFile);
-
-    printf("Program reached end.\n");
 }
 
 #define MAX_FILES_TO_PARSE 4
@@ -708,6 +791,7 @@ main(int argc, char ** args) {
     char * Footer = 0;
     int FileCount = 0;
     char * FilesToParse[MAX_FILES_TO_PARSE] = {0};
+    char * FileNames[MAX_FILES_TO_PARSE] = {0};
     unsigned int Output = 0;
     //Note(Zen): Parse arguments sent to the program.
     for(int i = 1; i < argc; ++i) {
@@ -758,30 +842,35 @@ main(int argc, char ** args) {
         Header = LoadEntireFileNT(HeaderPath);
     }
     if(FooterPath) {
-        Footer = LoadEntireFileNT(Footer);
+        Footer = LoadEntireFileNT(FooterPath);
     }
 
-    //Note(Zen): Build a token buffer for each file
 
     memory_arena PageNodesArena = {0};
     void * ArenaMemory = malloc(32 * sizeof(page_node));
     ArenaInit(&PageNodesArena, ArenaMemory, 32 * sizeof(page_node));
 
     for(int i = 0; i < FileCount; ++i) {
+        //Load the filename
         char * File = LoadEntireFileNT(FilesToParse[i]);
+        //Clear the file extension to ge the desired output name
+        int FileNameLength = strlen(FilesToParse[i]);
+        for(int j = 0; j < FileNameLength; ++j) {
+            if(FilesToParse[i][j] == '.') {
+                FilesToParse[i][j] = '\0';
+            }
+        }
+        SiteInfo.FileName = FilesToParse[i];
+
         char * Stream = File;
+
         //Note(Zen): Parse the file.
-        printf("Parsing %s.\n", FilesToParse[i]);
         token * TokenBuffer = NULL;
         while(*Stream) {
             Stream = AddTokenToBuffer(Stream, &TokenBuffer);
         }
-        for(int i = 0; i < VectorLength(TokenBuffer); ++i) {
-            printf("%d", i);
-            PrintToken(TokenBuffer[i]);
-        }
+
         //Note(Zen): Build page tree.
-        printf("\nBuilding Page Tree:\n");
 
         BuildPage(&PageNodesArena, TokenBuffer);
 
