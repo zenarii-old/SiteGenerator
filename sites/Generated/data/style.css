@@ -34,13 +34,13 @@
 @font-face
 {
     font-family: 'Title';
-    src: url('Data/Fonts/Oxygen-Bold.ttf') format('truetype');
+    src: url('Oxygen-Bold.ttf') format('truetype');
 }
 
 @font-face
 {
     font-family: 'Text';
-    src: url('Data/Fonts/OpenSans-Regular.ttf') format('truetype');
+    src: url('OpenSans-Regular.ttf') format('truetype');
 }
 
 body {

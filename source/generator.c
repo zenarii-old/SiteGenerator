@@ -4,7 +4,7 @@
 #include <stddef.h>
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define foreach(x) for(; (x); (x) = (x)->Next)
-#define GENERATOR_INTERNAL 1
+#define GENERATOR_INTERNAL 0
 
 typedef uintptr_t pointer;
 
@@ -315,6 +315,16 @@ AddTokenToBuffer(char * Stream, token ** TokenBuffer) {
             ++Stream;
         }
         Token.Type = TOKEN_TEXT;
+    }
+    //Note(Zen): String literals can be used to contain characters that are used as seperators and identifiers i.e '@'
+    else if(*Stream == '"') {
+        Token.Start = ++Stream; //remove the "s
+        while(*Stream != '"') {
+            Stream++;
+        }
+        Token.Type = TOKEN_TEXT;
+
+        *Stream = ' '; //remove the "s
     }
     else if(*Stream == ' ' || *Stream == '\r') {
         //Note(Zen): Skip Spaces as whitespace
@@ -748,7 +758,13 @@ OutputPageNodeListAsHTML(site_info SiteInfo, memory_arena * NodesArena, char * H
     fprintf(OutputFile, "<html lang='en'>\n");
     fprintf(OutputFile, "<head>\n");
     {
-        if(SiteInfo.PageTitle) fprintf(OutputFile, "<title>%s</title>\n", SiteInfo.PageTitle);
+        if(SiteInfo.PageTitle) {
+            //Note(Zen): Make the first part of the file name a capital letter
+            if('z' >= SiteInfo.FileName[0] && SiteInfo.FileName[0] >= 'a') {
+                SiteInfo.FileName[0] += 'A' - 'a';
+            }
+            fprintf(OutputFile, "<title>%s | %s</title>\n", SiteInfo.FileName, SiteInfo.PageTitle);
+        }
 
         fprintf(OutputFile, "<link rel='stylesheet' type='text/css' href='style.css'>\n");
         fprintf(OutputFile, "<meta name='viewport' content='width=device-width, initial-scale=1.0'>\n");
@@ -887,6 +903,5 @@ main(int argc, char ** args) {
         Line = 0;
         DidError = 0;
     }
-    printf("Reached end of program without crashing.\n");
     return 0;
 }
