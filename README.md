@@ -2,7 +2,7 @@
 
 ----
 ## Description
-A static site generator, written in C, using a custom format. Designed to simplify the creation and editing of html files. An example of the ouput can be seen in [my site](https://zenarii.co.uk) in the sites folder in the repository.
+A static site generator, written in C, using a custom format. Designed to simplify the creation and editing of html files. An example of the ouput can be seen in [my site](https://zenarii.co.uk) or in the sites folder in the repository.
 
 ----
 ## Get Started
