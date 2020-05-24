@@ -1,0 +1,4 @@
+@Title {Crest Engine}
+@Image {CrestEngine | Data/Images/CrestEngine.png }
+
+Crest is a custom 3D game engine that I have been working on in my spare time. It is programmed in C with OpenGL and has (almost) no dependencies. The engine features an Immediate-Mode GUI, custom platform layers and support for procedural meshes.

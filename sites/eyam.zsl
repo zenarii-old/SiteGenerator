@@ -1,0 +1,7 @@
+@Title {Extending the Epidemiology of Eyam}
+
+The paper has been published by the Institute of Physics and is available @Link {here. | https://iopscience.iop.org/article/10.1088/1361-6552/ab4a59}
+
+@Image {Eyam | Data/Images/Eyam.png}
+
+My contribution to the paper was writing a graph visualisation tool to view the spread of a 1600s plague over the course of a few months, with a UI to tweak parameters. The program also solved for a 'best fit' graph of the plague, using the plague data recorded by Mompesson during the Eyam plague, with an iterative method to improve the approximations.

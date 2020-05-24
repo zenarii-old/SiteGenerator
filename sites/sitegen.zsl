@@ -1,0 +1,10 @@
+@Title {Site Generator}
+@Image {Sitegen | Data/Images/sitegen.png}
+
+Sitegen.exe is a utility program I created to simplify the process of creating and editing websites. Instead of creating multiple HTML files one can instead create a much simpler file in the custom format per webpage, and include a header and footer for parts of a webpage that need to be the same across the site (e.g Navbars).
+
+This means that when editing a site made with the program you can focus on the relevant markup and all changes will be applied to the file, and if necessary site wide, all in a single command.
+
+You can view the source here: @Link {Github. | https://github.com/Zenarii/SiteGenerator}
+
+This site is an example of the output, all pages were made with this tool.

@@ -13,4 +13,4 @@ REM Note(Zen): Copy HTML/CSS to Generated directory, then copy all files to my s
 robocopy ../sites Generated *.html > nul
 robocopy ../sites Generated *.css > nul
 robocopy Generated W:\site /S >nul
-pause
+

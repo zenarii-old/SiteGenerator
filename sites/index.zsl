@@ -1,4 +1,8 @@
 @Title {My Projects.}
+Click the images for more info.
 
-@ColumnIT {Data/Images/CrestEngine.png | CrestEngine/Knights of Zerava - A custom 3D game engine written in C}
-@ColumnTI {Sitegen.exe - A static website generator to simplify the site creation process | Data/Images/Sitegen.png}
+@ColumnLS {crest.html | Data/Images/CrestEngine.png | CrestEngine/Knights of Zeravia | A custom 3D game engine written in C.}
+@ColumnLS {sitegen.html | Data/Images/Sitegen.png | Sitegen.exe | A static website generator to simplify the site creation process.}
+
+@Title {Papers.}
+@ColumnLS {eyam.html | Data/Images/Eyam.png | Extending the Epidemiology of Eyam | A paper exploring pandemics, published by the Institue of Physics.}

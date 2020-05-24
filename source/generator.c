@@ -5,6 +5,7 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #define foreach(x) for(; (x); (x) = (x)->Next)
 #define GENERATOR_INTERNAL 0
+#define MAX_COLUMN_FIELDS 4
 
 typedef uintptr_t pointer;
 
@@ -46,7 +47,7 @@ CharIsDigit(char c) {
 
 static int
 CharIsSymbol(char c) {
-    return c == '.' || c == ':' || c == '/' || c == '\\' || c == ',' || c == '_' || c == '-' || c == '<' || c == '>' || c =='\'' || c == '!' || c == '?';
+    return c == '.' || c == ':' || c == '/' || c == '\\' || c == ',' || c == '_' || c == '-' || c == '<' || c == '>' || c =='\'' || c == '!' || c == '?' || c == '(' || c == ')';
 }
 
 static int
@@ -388,6 +389,7 @@ typedef enum column_type column_type;
 enum column_type {
     COLUMN_TYPE_IMAGE_TEXT,
     COLUMN_TYPE_TEXT_IMAGE,
+    COLUMN_TYPE_LINKED_IMAGE_TITLE_TEXT
 };
 
 typedef struct page_node page_node;
@@ -405,8 +407,8 @@ struct page_node {
 
         struct {
             column_type SubType;
-            const char * SecondTextStart;
-            const char * SecondTextEnd;
+            int UsedFields;
+            const char * Item[8]; //max 4 pieces of text * 2 for start/end
         } Column;
     };
 };
@@ -438,8 +440,11 @@ PrintPageNode(page_node * PageNode) {
             printf("PAGE NODE: IMAGE\n\tAlternate Text: %.*s\n\tSource: %.*s\n", TextLength, PageNode->TextStart, LinkLength, PageNode->LinkURLStart);
         } break;
         case PAGE_NODE_COLUMN: {
-            int SecondTextLength = PageNode->Column.SecondTextEnd - PageNode->Column.SecondTextStart;
-            printf("PAGE NODE: COLUMN\n\tColumn Type: %d\n\tText 1: %.*s\n\tText 2: %.*s\n", PageNode->Column.SubType, TextLength, PageNode->TextStart, SecondTextLength, PageNode->Column.SecondTextStart);
+            printf("PAGE NODE: COLUMN\n\tType: %d", PageNode->Column.SubType);
+            for(int i = 0; i < PageNode->Column.UsedFields; ++i) {
+                int Length = PageNode->Column.Item[i*2 + 1] - PageNode->Column.Item[i*2];
+                printf("\tField %d: %.*s\n", i+1, Length, PageNode->Column.Item[i*2]);
+            }
         } break;
         default: {
             printf("PAGE NODE: @Zen add page node: (%d)\n", PageNode->Type);
@@ -597,37 +602,38 @@ BuildPage(memory_arena * Arena, token * TokenBuffer) {
 
                     if(StringCompareCaseSensitiveR(Token.Start, "@ColumnIT", TokenLength)) {
                         Node->Column.SubType = COLUMN_TYPE_IMAGE_TEXT;
+                        Node->Column.UsedFields = 2;
                     }
                     else if(StringCompareCaseSensitiveR(Token.Start, "@ColumnTI", TokenLength)) {
                         Node->Column.SubType = COLUMN_TYPE_TEXT_IMAGE;
+                        Node->Column.UsedFields = 2;
                     }
+                    else if(StringCompareCaseSensitiveR(Token.Start, "@ColumnLS", TokenLength)) {
+                        Node->Column.SubType = COLUMN_TYPE_LINKED_IMAGE_TITLE_TEXT;
+                        Node->Column.UsedFields = 4;
+                    }
+
 
                     ++i;
                     if(RequireToken('{', TokenBuffer[i])) {
-                        ++i;
-                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node->TextStart = TokenBuffer[i].Start;
-                            Node->TextEnd = TokenBuffer[i].End;
-                        }
-                        else {
-                            printf("Error: Argument 1 of @Column should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
-                            DidError = 1;
-                        }
+                        for(int j = 0; j < Node->Column.UsedFields; ++j) {
+                            ++i;
+                            if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
+                                Node->Column.Item[2*j] = TokenBuffer[i].Start;
+                                Node->Column.Item[2*j+1] = TokenBuffer[i].End;
+                            }
+                            else {
+                                printf("Error: Argument %d of @Column should be text, not %s\n", j+1, PrintableTokenName(TokenBuffer[i]));
+                                DidError = 1;
+                            }
 
-                        ++i;
-                        if(!RequireToken('|', TokenBuffer[i])) {
-                            printf("Error: @Column requires two arguments\n");
-                            DidError = 1;
-                        }
-
-                        ++i;
-                        if(RequireToken(TOKEN_TEXT, TokenBuffer[i])) {
-                            Node->Column.SecondTextStart = TokenBuffer[i].Start;
-                            Node->Column.SecondTextEnd = TokenBuffer[i].End;
-                        }
-                        else {
-                            printf("Error: Argument 2 of @Column should be text, not %s\n", PrintableTokenName(TokenBuffer[i]));
-                            DidError = 1;
+                            if(j < Node->Column.UsedFields - 1) {
+                                ++i;
+                                if(!RequireToken('|', TokenBuffer[i])) {
+                                    printf("Error: %.*s requires %d arguments\n", TokenLength, Token.Start, Node->Column.UsedFields);
+                                    DidError = 1;
+                                }
+                            }
                         }
 
                         ++i;
@@ -686,7 +692,7 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
         } break;
         case PAGE_NODE_NEW_PARAGRAPH: {
             if(*InParagraph) {
-                fprintf(OutputFile, "\n</p>\n");
+                fprintf(OutputFile, "\n</p><br>\n");
             }
             *InParagraph = 0;
         } break;
@@ -712,29 +718,36 @@ OutputPageNodeAsHTML(FILE * OutputFile, page_node * CurrentNode, int * InParagra
         case PAGE_NODE_IMAGE: {
             int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
             int LinkLength = CurrentNode->LinkURLEnd - CurrentNode->LinkURLStart;
-            fprintf(OutputFile, "<img src='%.*s' alt='%.*s' width='100%%'>\n", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
+            fprintf(OutputFile, "<div class='ImageContainer'><img src='%.*s' alt='%.*s' width='100%%'></div>\n", LinkLength, CurrentNode->LinkURLStart, TextLength, CurrentNode->TextStart);
         } break;
         case PAGE_NODE_COLUMN: {
             if(*InParagraph) {
-                fprintf(OutputFile, "\n</p>\n");
+                fprintf(OutputFile, "\n</p><br>\n");
                 *InParagraph = 0;
             }
-
-            int TextLength = CurrentNode->TextEnd - CurrentNode->TextStart;
-            int SecondTextLength = CurrentNode->Column.SecondTextEnd - CurrentNode->Column.SecondTextStart;
+            int TextLength[MAX_COLUMN_FIELDS] = {0};
+            for(int j = 0; j < CurrentNode->Column.UsedFields; ++j) {
+                TextLength[j] = CurrentNode->Column.Item[2*j+1] - CurrentNode->Column.Item[2*j];
+            }
 
             fprintf(OutputFile, "<div class='Columns'>\n");
 
             switch (CurrentNode->Column.SubType) {
                 case COLUMN_TYPE_IMAGE_TEXT: {
-                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n",
-                                        TextLength, CurrentNode->TextStart);
-                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", SecondTextLength, CurrentNode->Column.SecondTextStart);
+                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n", TextLength[0], CurrentNode->Column.Item[0]);
+                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", TextLength[1], CurrentNode->Column.Item[1 * 2]);
                 } break;
                 case COLUMN_TYPE_TEXT_IMAGE: {
-                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", TextLength, CurrentNode->TextStart);
-                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n", SecondTextLength, CurrentNode->Column.SecondTextStart);
-                }
+                    fprintf(OutputFile, "<div class='Column'>\n<p>%.*s</p>\n</div>\n", TextLength[0], CurrentNode->Column.Item[0]);
+                    fprintf(OutputFile, "<div class='Column'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</div>\n", TextLength[1], CurrentNode->Column.Item[1 * 2]);
+                } break;
+                case COLUMN_TYPE_LINKED_IMAGE_TITLE_TEXT: {
+                    fprintf(OutputFile, "<div class='Column'>\n<a href='%.*s'>\n<img src='%.*s' alt='ColumnImage' width='100%%'>\n</a>\n</div>\n", TextLength[0], CurrentNode->Column.Item[0 * 2], TextLength[1], CurrentNode->Column.Item[1 * 2]);
+                    fprintf(OutputFile, "<div class='Column'>\n<div>\n<h2>%.*s</h2>\n<p>%.*s</p>\n</div>\n</div>\n", TextLength[2], CurrentNode->Column.Item[2 * 2], TextLength[3], CurrentNode->Column.Item[3 * 2]);
+                } break;
+                default: {
+                    printf("Error unknown column type");
+                } break;
             }
 
             fprintf(OutputFile, "</div>\n");
@@ -795,7 +808,7 @@ OutputPageNodeListAsHTML(site_info SiteInfo, memory_arena * NodesArena, char * H
     fclose(OutputFile);
 }
 
-#define MAX_FILES_TO_PARSE 4
+#define MAX_FILES_TO_PARSE 64
 #define OUTPUT_HTML (1<<0)
 
 int
@@ -865,10 +878,11 @@ main(int argc, char ** args) {
     memory_arena PageNodesArena = {0};
     void * ArenaMemory = malloc(32 * sizeof(page_node));
     ArenaInit(&PageNodesArena, ArenaMemory, 32 * sizeof(page_node));
-
+    printf("Parsing %d files.\n", FileCount);
     for(int i = 0; i < FileCount; ++i) {
-        //Load the filename
+        printf("%s\n", FilesToParse[i]);
         char * File = LoadEntireFileNT(FilesToParse[i]);
+
         //Clear the file extension to ge the desired output name
         int FileNameLength = strlen(FilesToParse[i]);
         for(int j = 0; j < FileNameLength; ++j) {
@@ -887,7 +901,6 @@ main(int argc, char ** args) {
         }
 
         //Note(Zen): Build page tree.
-
         BuildPage(&PageNodesArena, TokenBuffer);
 
         if(!DidError) {

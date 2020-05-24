@@ -28,7 +28,7 @@
     --ColourLink: var(--nord12);
     --ColourCodeBackground: var(--nord1);
     --ColourColumn: var(--nord2);
-    --ColourTitle: var(--nord14);
+    --ColourTitle: var(--nord4);
 }
 
 @font-face
@@ -45,7 +45,7 @@
 
 body {
     background-color: var(--ColourBackground);
-    width: 60%;
+    width: 80%;
     margin: auto;
     text-decoration: none;
 }
@@ -85,6 +85,15 @@ p a:hover {
 	border-bottom-width: 1px;
 }
 
+.ImageContainer img {
+    border-radius: 25px;
+    width: 30%;
+}
+
+.ImageContainer {
+    padding-bottom: 20px;
+}
+
 /*CSS for the @Column tag and variants*/
 
 .Columns {
@@ -107,21 +116,48 @@ p a:hover {
 
 .Column img {
     object-fit: cover;
+    width: 100%;
+
 }
 
 .Column p {
     width: 90%;
 }
 
+
+/* Linked Images */
+.Column a img {
+    object-fit: cover;
+    width: 100%;
+}
+
+.Column a {
+    display: flex;
+}
+
+/* For columns with a sub title and some text */
+.Column div {
+    text-align: center;
+    margin: auto;
+}
+
+.Column div h2 {
+    padding-bottom: 20px;
+}
+
+.Column div p {
+    width: 100%;
+}
+
 /* Selected text colour */
 ::-moz-selection { /* Code for Firefox */
-    color: red;
-    background: var(--colour-selection);
+    color: var(--nord12);
+    background: var(--nord6);
 }
 
 ::selection {
-    color: var(--colour-title);
-    background: var(--colour-selection);
+    color: var(--nord12);
+    background: var(--nord6);
 }
 
 
@@ -168,4 +204,89 @@ p a:hover {
     border-width: 1px;
     padding-bottom: 7px;
     border-color: var(--colour-dark);
+}
+
+/* Mobile css */
+@media only screen and (max-width: 800px) {
+    body {
+        width: 95%;
+    }
+
+    /* Make Columns collapse to 1 per row */
+    .Columns {
+        display:block;
+        padding-bottom: 20px;
+        text-align: center;
+    }
+
+    .Column {
+        border-radius: 0px;
+        float: none;
+        width: 100%;
+
+        overflow: hidden;
+        background-color: var(--ColourColumn);
+        text-align: center;
+        display: block;
+    }
+
+    .Column img {
+        object-fit: cover;
+    }
+
+    .Column p {
+        width: 90%;
+        margin: auto;
+        text-align: center;
+        margin-top: 5px;
+        margin-bottom: 5px;
+    }
+
+    /* Make Header centered */
+    .HeaderWrapper {
+        text-align:center;
+    }
+    .HeaderTitle a {
+        display: inline-block;
+        width: auto;
+        font-size: 3rem;
+        text-decoration: none;
+        color: var(--ColourTitle);
+        /* font-family: 'Roboto'; */
+    }
+
+    .Header {
+        list-style-type: none;
+        margin: auto;
+        overflow: hidden;
+        text-align: center;
+        display: inline-block;
+        font-family: 'Title';
+    }
+
+    .HeaderLinks {
+        display: inline-block;
+    }
+
+    .HeaderLink {
+        display: inline-block;
+        color: var(--ColourTitle);
+        padding: 5px;
+        text-decoration: none;
+        font-family: 'Title';
+    }
+
+    .HeaderLink:hover {
+        background-color: var(--colour-clear);
+        border-bottom-style: solid;
+        border-width: 1px;
+        padding-bottom: 7px;
+        border-color: var(--colour-dark);
+    }
+
+    .ImageContainer img {
+        border-radius: 15px;
+        width: 80%;
+    }
+
 }
