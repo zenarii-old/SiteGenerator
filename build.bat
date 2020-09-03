@@ -1,9 +1,7 @@
 @echo off
-cls
-IF NOT EXIST build mkdir build
-IF NOT EXIST sites mkdir sites
+
+set opts=-FC -GR- -EHa- -nologo -Zi
+set code=%cd%
 pushd build
-clang -Werror -g -gcodeview ../source/generator.c -o sitegen.exe -target x86_64-w64-mingw64
+cl %opts% %code%\main.c -Fesitegen
 popd
-robocopy build sites sitegen.exe > nul
-echo Compilation completed at %time%.

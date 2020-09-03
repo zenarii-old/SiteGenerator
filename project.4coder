@@ -1,0 +1,39 @@
+version(1);
+project_name = "sitegen";
+patterns = {
+"*.c",
+"*.cpp",
+"*.h",
+"*.m",
+"*.bat",
+"*.sh",
+"*.4coder",
+"*.inc",
+"*.zsl",
+};
+blacklist_patterns = {
+".*",
+};
+load_paths_base = {
+ { ".", .relative = true, .recursive = true, },
+};
+load_paths = {
+ { load_paths_base, .os = "win", },
+ { load_paths_base, .os = "linux", },
+ { load_paths_base, .os = "mac", },
+};
+
+command_list = {
+ { .name = "build",
+   .out = "*compilation*", .footer_panel = true, .save_dirty_files = true,
+   .cmd = { { "build.bat" , .os = "win"   },
+            { "./build.sh", .os = "linux" },
+            { "./build.sh", .os = "mac"   }, }, },
+ { .name = "run",
+   .out = "*compilation*", .footer_panel = false, .save_dirty_files = false,
+   .cmd = { { "build\\sitegen", .os = "win"   },
+            { "./run.sh" , .os = "linux" },
+            { "build/sitegen" , .os = "mac"   }, }, },
+};
+fkey_command[5] = "build";
+fkey_command[6] = "run";
